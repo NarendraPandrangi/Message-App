@@ -251,18 +251,17 @@ const Dashboard = () => {
     }
 
     const handleChatSelect = async (u) => {
+        if (!u?.uid) return; // Guard against bad data
         const combinedId = currentUser.uid > u.uid ? currentUser.uid + u.uid : u.uid + currentUser.uid;
 
-        // Reset unread count
+        // Reset unread count (Fire-and-forget, don't block selection)
         try {
-            // We use dot notation to update nested field
             const chatRef = doc(db, "userChats", currentUser.uid);
-            // We need to check if we can update just that field.
             await updateDoc(chatRef, {
                 [combinedId + ".unreadCount"]: 0
             });
         } catch (err) {
-            console.error("Error resetting unread count:", err);
+            console.warn("Could not reset unread count (likely permission/network):", err);
         }
 
         setSelectedChat({ chatId: combinedId, user: u });
@@ -337,7 +336,12 @@ const Dashboard = () => {
     return (
         <div className="dashboard-container">
             {/* Sidebar */}
-            <div className="sidebar glass-panel">
+            <div className="sidebar glass-panel" style={{
+                maxWidth: selectedChat ? '380px' : '100%',
+                width: selectedChat ? 'auto' : '100%',
+                flex: selectedChat ? 'none' : '1',
+                borderRight: selectedChat ? '1px solid var(--glass-border)' : 'none'
+            }}>
                 <div className="sidebar-header">
                     <h3 className="gradient-text">ChatVerse</h3>
                     <div className="user-profile">
@@ -436,71 +440,64 @@ const Dashboard = () => {
                 </div>
             </div>
 
-            {/* Chat Area */}
-            <div className="chat-area glass-panel">
-                {selectedChat ? (
-                    <>
-                        <div className="chat-header">
-                            <div className="chat-target-info">
-                                <img src={selectedChat.user.photoURL} alt="" />
-                                <span>{selectedChat.user.displayName}</span>
-                            </div>
-                            <div className="chat-actions">
-                                {/* Could put video/call icons here */}
-                            </div>
+            {/* Chat Area - Only visible when a chat is selected */}
+            {selectedChat && (
+                <div className="chat-area glass-panel">
+                    <div className="chat-header">
+                        <div className="chat-target-info">
+                            <img src={selectedChat.user.photoURL} alt="" />
+                            <span>{selectedChat.user.displayName}</span>
                         </div>
-                        <div className="messages-container">
-                            {messages.map((m) => (
-                                <div className={`message ${m.senderId === currentUser.uid ? 'owner' : ''}`} key={m.id}>
-                                    <div className="message-content">
-                                        {m.img && <img src={m.img} alt="" style={{ width: '100%', borderRadius: '10px', marginBottom: '5px' }} />}
-                                        <p>{m.text}</p>
-                                        {/* <span>{m.timestamp}</span> */}
-                                    </div>
-                                </div>
-                            ))}
+                        <div className="chat-actions">
+                            {/* Could put video/call icons here */}
                         </div>
-                        <div className="input-area">
-                            {openEmoji && (
-                                <div className="emoji-picker-wrapper">
-                                    <EmojiPicker onEmojiClick={handleEmoji} />
-                                </div>
-                            )}
-                            <div className="input-icons">
-                                <span onClick={() => setOpenEmoji(!openEmoji)} style={{ cursor: 'pointer', fontSize: '1.2rem' }}>😃</span>
-                                <label htmlFor="file-upload" style={{ cursor: 'pointer', fontSize: '1.2rem', marginLeft: '10px' }}>
-                                    📎
-                                </label>
-                                <input
-                                    type="file"
-                                    id="file-upload"
-                                    style={{ display: 'none' }}
-                                    onChange={handleImg}
-                                />
-                            </div>
-                            <input
-                                type="text"
-                                placeholder={img ? "Image selected. Type a caption or send..." : "Type something..."}
-                                onChange={(e) => setNewMessage(e.target.value)}
-                                value={newMessage}
-                                onKeyDown={(e) => e.code === "Enter" && handleSendMessage()}
-                                style={{ flex: 1 }}
-                            />
-                            {img && (
-                                <div className="img-preview" style={{ marginRight: '10px', fontSize: '0.8rem', color: '#fff' }}>
-                                    Image: {img.name} <span onClick={() => setImg(null)} style={{ cursor: 'pointer', color: 'red' }}>x</span>
-                                </div>
-                            )}
-                            <button onClick={handleSendMessage} className="btn-primary">Send</button>
-                        </div>
-                    </>
-                ) : (
-                    <div className="no-chat-selected">
-                        <h2 className="gradient-text">Welcome to ChatVerse</h2>
-                        <p>Select a chat or search for a user to start messaging.</p>
                     </div>
-                )}
-            </div>
+                    <div className="messages-container">
+                        {messages.map((m) => (
+                            <div className={`message ${m.senderId === currentUser.uid ? 'owner' : ''}`} key={m.id}>
+                                <div className="message-content">
+                                    {m.img && <img src={m.img} alt="" style={{ width: '100%', borderRadius: '10px', marginBottom: '5px' }} />}
+                                    <p>{m.text}</p>
+                                    {/* <span>{m.timestamp}</span> */}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="input-area">
+                        {openEmoji && (
+                            <div className="emoji-picker-wrapper">
+                                <EmojiPicker onEmojiClick={handleEmoji} />
+                            </div>
+                        )}
+                        <div className="input-icons">
+                            <span onClick={() => setOpenEmoji(!openEmoji)} style={{ cursor: 'pointer', fontSize: '1.2rem' }}>😃</span>
+                            <label htmlFor="file-upload" style={{ cursor: 'pointer', fontSize: '1.2rem', marginLeft: '10px' }}>
+                                📎
+                            </label>
+                            <input
+                                type="file"
+                                id="file-upload"
+                                style={{ display: 'none' }}
+                                onChange={handleImg}
+                            />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder={img ? "Image selected. Type a caption or send..." : "Type something..."}
+                            onChange={(e) => setNewMessage(e.target.value)}
+                            value={newMessage}
+                            onKeyDown={(e) => e.code === "Enter" && handleSendMessage()}
+                            style={{ flex: 1 }}
+                        />
+                        {img && (
+                            <div className="img-preview" style={{ marginRight: '10px', fontSize: '0.8rem', color: '#fff' }}>
+                                Image: {img.name} <span onClick={() => setImg(null)} style={{ cursor: 'pointer', color: 'red' }}>x</span>
+                            </div>
+                        )}
+                        <button onClick={handleSendMessage} className="btn-primary">Send</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

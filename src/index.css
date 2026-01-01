@@ -465,3 +465,176 @@ body::after {
     border: 1px solid var(--glass-border);
     color: white;
 }
+
+/* Mobile Responsive Adjustments */
+@media screen and (max-width: 768px) {
+    .dashboard-container {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+        margin: 0;
+        width: 100%;
+        border-radius: 0;
+    }
+
+    .sidebar {
+        max-width: 100% !important;
+        min-width: 100% !important;
+        width: 100% !important;
+        flex: none;
+        height: 70vh;
+        /* Sidebar takes majority of height initially or use a toggle */
+        border-right: none;
+        border-bottom: 1px solid var(--glass-border);
+    }
+
+    /* If a chat is selected, we might want to hide sidebar or show chat on top. 
+       For simplicity in this CSS-only fix, we'll let them stack or scroll. 
+       A better approach requires JS toggling. */
+
+    .chat-area {
+        flex: 1;
+        min-height: 60vh;
+        border-left: none;
+    }
+
+    .navbar {
+        position: relative;
+        top: 0;
+        left: 0;
+        transform: none;
+        width: 100%;
+        padding: 10px;
+        background: rgba(15, 23, 42, 0.95);
+    }
+
+    .nav-content {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .nav-links {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .hero {
+        padding-top: 2rem;
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .hero-content {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    .hero-text {
+        order: 2;
+    }
+
+    .hero-visual {
+        order: 1;
+    }
+
+    .hero-title {
+        font-size: 2.5rem;
+    }
+
+    .input-area {
+        padding: 10px;
+    }
+
+    .input-area input {
+        width: 100%;
+    }
+
+    .emoji-picker-wrapper {
+        left: 0;
+        bottom: 70px;
+        width: 100%;
+    }
+}
+
+/* Tablet / Laptop adjustments */
+@media screen and (max-width: 1024px) {
+    .dashboard-container {
+        width: 98%;
+        margin: 1vh auto;
+    }
+}
+
+/* Auth Pages */
+.auth-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    position: relative;
+    background: transparent;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 450px;
+    padding: 3rem;
+    position: relative;
+    z-index: 10;
+    background: white;
+    border-radius: 3px;
+    box-shadow: 0 17px 50px 0 rgba(11, 20, 26, .19), 0 12px 15px 0 rgba(11, 20, 26, .24);
+    border-top: 5px solid var(--primary-green);
+}
+
+.auth-card h2 {
+    color: var(--text-primary);
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.auth-subtitle {
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.form-group input {
+    background: white;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 3px;
+}
+
+.full-width {
+    width: 100%;
+}
+
+.auth-footer {
+    margin-top: 1.5rem;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
