@@ -467,16 +467,16 @@ body::after {
 }
 
 /* Mobile Responsive Adjustments */
-/* Mobile Responsive Adjustments */
 @media screen and (max-width: 768px) {
     .dashboard-container {
-        height: 100vh;
+        height: 100dvh;
+        /* Use dynamic viewport height (fixes address bar issue) */
         width: 100%;
         margin: 0;
         border-radius: 0;
         border: none;
         flex-direction: row;
-        /* Keep row, we will toggle visibility */
+        overflow: hidden;
     }
 
     /* By default (List View) */
@@ -537,6 +537,8 @@ body::after {
 
     .btn-primary {
         padding: 10px 16px;
+        flex-shrink: 0;
+        /* Prevent button from vanishing */
     }
 }
 
