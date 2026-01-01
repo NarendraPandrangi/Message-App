@@ -21,6 +21,7 @@ const Dashboard = () => {
     const [img, setImg] = useState(null);
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState(null);
+    const [showContacts, setShowContacts] = useState(false);
 
     useEffect(() => {
         const unsubAuth = auth.onAuthStateChanged((user) => {
@@ -36,14 +37,26 @@ const Dashboard = () => {
     useEffect(() => {
         if (!currentUser) return;
 
+        // Mark user as online
+        const setOnline = async () => {
+            try {
+                await updateDoc(doc(db, "users", currentUser.uid), {
+                    isOnline: true
+                });
+            } catch (err) {
+                console.error("Error setting online status:", err);
+            }
+        };
+        setOnline();
+
         // Listener for current user's chats
         const unsubChats = onSnapshot(doc(db, "userChats", currentUser.uid), (doc) => {
             setChats(doc.data() || {});
         });
 
-        // Listener for suggested users (Real-time)
+        // Listener for all users (Real-time)
         const usersRef = collection(db, "users");
-        const q = query(usersRef, limit(10));
+        const q = query(usersRef);
 
         const unsubUsers = onSnapshot(q, (querySnapshot) => {
             const users = [];
@@ -64,14 +77,90 @@ const Dashboard = () => {
     }, [currentUser]);
 
 
-    // Listen for messages when a chat is selected
+    const [partnerTyping, setPartnerTyping] = useState(false);
+    const [typingTimeout, setTypingTimeout] = useState(null);
+
+    // Listen for messages & typing status when a chat is selected
     useEffect(() => {
         if (!selectedChat) return;
+
+        setIsTyping(false); // Reset local state on switch
+
         const unSub = onSnapshot(doc(db, "chats", selectedChat.chatId), (doc) => {
-            doc.exists() && setMessages(doc.data().messages);
+            if (doc.exists()) {
+                const data = doc.data();
+                setMessages(data.messages || []);
+
+                // Check if partner is typing
+                if (data.typing) {
+                    const partnerUid = selectedChat.user.uid;
+                    setPartnerTyping(data.typing[partnerUid] || false);
+                } else {
+                    setPartnerTyping(false);
+                }
+
+                // MARK MESSAGES AS READ
+                // If I am looking at this chat, and there are messages from the *other* user that are not 'read', mark them.
+                const msgs = data.messages || [];
+                const partnerUid = selectedChat.user.uid;
+
+                const needsUpdate = msgs.some(m => m.senderId === partnerUid && m.status !== 'read');
+
+                if (needsUpdate) {
+                    const updatedMsgs = msgs.map(m => {
+                        if (m.senderId === partnerUid && m.status !== 'read') {
+                            return { ...m, status: 'read' };
+                        }
+                        return m;
+                    });
+
+                    // Update DB (limit this to run only when needed to avoid infinite loops)
+                    updateDoc(doc(db, "chats", selectedChat.chatId), {
+                        messages: updatedMsgs
+                    }).catch(err => console.error("Error marking read:", err));
+                }
+            }
         });
         return () => unSub();
-    }, [selectedChat])
+    }, [selectedChat]);
+
+    const [isTyping, setIsTyping] = useState(false);
+
+    const handleTyping = async (e) => {
+        setNewMessage(e.target.value);
+
+        if (!selectedChat) return;
+        const combinedId = selectedChat.chatId;
+
+        // If not already typing, mark true in DB
+        if (!isTyping) {
+            setIsTyping(true);
+            try {
+                await updateDoc(doc(db, "chats", combinedId), {
+                    [`typing.${currentUser.uid}`]: true
+                });
+            } catch (err) {
+                console.error("Error setting typing true", err);
+            }
+        }
+
+        // Clear existing timeout
+        if (typingTimeout) clearTimeout(typingTimeout);
+
+        // Set new timeout to mark false
+        const timeout = setTimeout(async () => {
+            setIsTyping(false);
+            try {
+                await updateDoc(doc(db, "chats", combinedId), {
+                    [`typing.${currentUser.uid}`]: false
+                });
+            } catch (err) {
+                console.error("Error setting typing false", err);
+            }
+        }, 2000); // 2 seconds
+
+        setTypingTimeout(timeout);
+    };
 
     const handleSearch = async () => {
         setErr(null);
@@ -194,6 +283,7 @@ const Dashboard = () => {
             text: newMessage,
             senderId: currentUser.uid,
             date: new Date(),
+            status: 'sent',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
 
@@ -328,27 +418,84 @@ const Dashboard = () => {
         }
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        try {
+            if (currentUser) {
+                await updateDoc(doc(db, "users", currentUser.uid), {
+                    isOnline: false,
+                    lastSeen: serverTimestamp()
+                });
+            }
+        } catch (err) {
+            console.error("Error marking offline:", err);
+        }
         signOut(auth);
         navigate("/login");
     }
 
+    // Handle tab close/unload
+    useEffect(() => {
+        const handleTabClose = () => {
+            if (currentUser) {
+                // Note: complex async calls might not complete on unmount, but we try
+                // Using navigator.sendBeacon is better but Firestore doesn't support it directly easily.
+                // We will just rely on standard updateDoc for now as best effort.
+                updateDoc(doc(db, "users", currentUser.uid), {
+                    isOnline: false,
+                    lastSeen: serverTimestamp()
+                });
+            }
+        };
+
+        window.addEventListener('beforeunload', handleTabClose);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleTabClose);
+        };
+    }, [currentUser]);
+
+    const formatLastSeen = (timestamp) => {
+        if (!timestamp) return '';
+        const date = timestamp.toDate();
+        const now = new Date();
+        const isToday = date.toDateString() === now.toDateString();
+        const isYesterday = new Date(now.setDate(now.getDate() - 1)).toDateString() === date.toDateString();
+
+        const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        if (isToday) return `Last seen today at ${timeStr}`;
+        if (isYesterday) return `Last seen yesterday at ${timeStr}`;
+        return `Last seen ${date.toLocaleDateString()} at ${timeStr}`;
+    };
+
     return (
-        <div className="dashboard-container">
+        <div className={`dashboard-container ${selectedChat ? 'mobile-chat-open' : ''}`}>
             {/* Sidebar */}
-            <div className="sidebar glass-panel" style={{
-                maxWidth: selectedChat ? '380px' : '100%',
-                width: selectedChat ? 'auto' : '100%',
-                flex: selectedChat ? 'none' : '1',
-                borderRight: selectedChat ? '1px solid var(--glass-border)' : 'none'
-            }}>
-                <div className="sidebar-header">
-                    <h3 className="gradient-text">ChatVerse</h3>
-                    <div className="user-profile">
-                        <img src={currentUser?.photoURL} alt="" />
-                        <span>{currentUser?.displayName}</span>
-                        <button onClick={() => setEditingProfile(true)} className='btn-icon' title="Edit Profile" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', marginLeft: '5px' }}>✏️</button>
-                        <button onClick={handleLogout} className='btn-logout'>Logout</button>
+            <div className="sidebar glass-panel">
+                <div className="sidebar-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                        <h3 className="gradient-text">ChatVerse</h3>
+                        <div className="user-profile">
+                            <img src={currentUser?.photoURL} alt="" />
+                            <button onClick={handleLogout} className='btn-logout' title="Logout">⏻</button>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', width: '100%', gap: '10px' }}>
+                        <button
+                            onClick={() => setShowContacts(false)}
+                            className={`btn-toggle ${!showContacts ? 'active' : ''}`}
+                            style={{ flex: 1, padding: '8px', border: 'none', background: !showContacts ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.05)', borderRadius: '8px', color: 'white', cursor: 'pointer', transition: 'all 0.3s' }}
+                        >
+                            Chats
+                        </button>
+                        <button
+                            onClick={() => setShowContacts(true)}
+                            className={`btn-toggle ${showContacts ? 'active' : ''}`}
+                            style={{ flex: 1, padding: '8px', border: 'none', background: showContacts ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.05)', borderRadius: '8px', color: 'white', cursor: 'pointer', transition: 'all 0.3s' }}
+                        >
+                            Contacts
+                        </button>
                     </div>
                 </div>
 
@@ -367,86 +514,125 @@ const Dashboard = () => {
                 <div className="search-bar">
                     <input
                         type="text"
-                        placeholder="Find a user by email..."
+                        placeholder={showContacts ? "Search contacts..." : "Find a user by email..."}
                         onKeyDown={handleKey}
                         onChange={(e) => setUsername(e.target.value)}
                         value={username}
                     />
                     {err && <span style={{ color: 'red', fontSize: '12px' }}>{err}</span>}
-                    {searchedUser && (
-                        <div className="user-chat-item" onClick={() => handleSelectUser(searchedUser)}>
-                            <img src={searchedUser.photoURL} alt="" />
-                            <div className="user-chat-info">
-                                <span>{searchedUser.displayName}</span>
-                            </div>
-                        </div>
-                    )}
-                    {!username && !searchedUser && suggestedUsers.length > 0 && (
-                        <div className="suggested-users">
-                            <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0' }}>Suggested Users</h4>
-                            {suggestedUsers.map(u => (
-                                <div className="user-chat-item" key={u.uid} onClick={() => handleSelectUser(u)}>
-                                    <img src={u.photoURL} alt="" />
-                                    <div className="user-chat-info">
-                                        <span>{u.displayName}</span>
-                                        <p style={{ fontSize: '0.75rem' }}>Click to chat</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
                 </div>
 
                 <div className="chats-list">
-                    {Object.entries(chats)?.sort((a, b) => b[1].date - a[1].date).map((chat) => (
-                        <div
-                            className={`user-chat-item ${selectedChat?.chatId === chat[0] ? 'active' : ''}`}
-                            key={chat[0]}
-                            onClick={() => handleChatSelect(chat[1].userInfo)}
-                            style={{ position: 'relative' }}
-                        >
-                            <img src={chat[1].userInfo.photoURL} alt="" />
-                            <div className="user-chat-info">
-                                <span>{chat[1].userInfo.displayName}</span>
-                                <p>{chat[1].lastMessage?.text}</p>
-                            </div>
-                            {chat[1].unreadCount > 0 && (
-                                <div style={{
-                                    background: '#25D366',
-                                    color: 'white',
-                                    borderRadius: '50%',
-                                    width: '20px',
-                                    height: '20px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 'bold',
-                                    marginRight: '35px'
-                                }}>
-                                    {chat[1].unreadCount}
-                                </div>
-                            )}
-                            <span
-                                onClick={(e) => handleDeleteChat(chat[0], e)}
-                                style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#ff4b4b', cursor: 'pointer', fontSize: '1.5rem', padding: '5px', zIndex: 10, opacity: 0.7, fontWeight: 'bold' }}
-                                title="Delete Chat"
-                                className="delete-chat-btn"
+                    {!showContacts ? (
+                        // CHATS LIST VIEW
+                        Object.entries(chats)?.sort((a, b) => b[1].date - a[1].date).map((chat) => (
+                            <div
+                                className={`user-chat-item ${selectedChat?.chatId === chat[0] ? 'active' : ''}`}
+                                key={chat[0]}
+                                onClick={() => handleChatSelect(chat[1].userInfo)}
+                                style={{ position: 'relative' }}
                             >
-                                ×
-                            </span>
-                        </div>
-                    ))}
+                                <img src={chat[1].userInfo.photoURL} alt="" />
+                                <div className="user-chat-info">
+                                    <span>{chat[1].userInfo.displayName}</span>
+                                    <p>{chat[1].lastMessage?.text}</p>
+                                </div>
+                                {chat[1].unreadCount > 0 && (
+                                    <div style={{
+                                        background: '#25D366',
+                                        color: 'white',
+                                        borderRadius: '50%',
+                                        width: '20px',
+                                        height: '20px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 'bold',
+                                        marginRight: '35px'
+                                    }}>
+                                        {chat[1].unreadCount}
+                                    </div>
+                                )}
+                                <span
+                                    onClick={(e) => handleDeleteChat(chat[0], e)}
+                                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#ff4b4b', cursor: 'pointer', fontSize: '1.5rem', padding: '5px', zIndex: 10, opacity: 0.7, fontWeight: 'bold' }}
+                                    title="Delete Chat"
+                                    className="delete-chat-btn"
+                                >
+                                    ×
+                                </span>
+                            </div>
+                        ))
+                    ) : (
+                        // CONTACTS LIST VIEW
+                        suggestedUsers
+                            .filter(u => u.displayName.toLowerCase().includes(username.toLowerCase()))
+                            .map(u => (
+                                <div className="user-chat-item" key={u.uid} onClick={() => handleSelectUser(u)}>
+                                    <div style={{ position: 'relative' }}>
+                                        <img src={u.photoURL} alt="" />
+                                        {u.isOnline && <div style={{
+                                            position: 'absolute',
+                                            bottom: '2px',
+                                            right: '2px',
+                                            width: '10px',
+                                            height: '10px',
+                                            borderRadius: '50%',
+                                            backgroundColor: '#25D366',
+                                            border: '2px solid #1e293b'
+                                        }}></div>}
+                                    </div>
+                                    <div className="user-chat-info">
+                                        <span>{u.displayName}</span>
+                                        <p style={{ fontSize: '0.75rem', color: u.isOnline ? '#25D366' : 'var(--text-secondary)' }}>
+                                            {u.isOnline ? 'Online' : 'Offline'}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))
+                    )}
                 </div>
             </div>
 
             {/* Chat Area - Only visible when a chat is selected */}
-            {selectedChat && (
+            {selectedChat ? (
                 <div className="chat-area glass-panel">
                     <div className="chat-header">
                         <div className="chat-target-info">
+                            <button
+                                onClick={() => setSelectedChat(null)}
+                                className="mobile-back-btn"
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'white',
+                                    fontSize: '1.5rem',
+                                    cursor: 'pointer',
+                                    marginRight: '10px',
+                                    display: 'none' // Hidden by default, shown on mobile via CSS
+                                }}
+                            >
+                                ←
+                            </button>
                             <img src={selectedChat.user.photoURL} alt="" />
-                            <span>{selectedChat.user.displayName}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                <span>{selectedChat.user.displayName}</span>
+                                {partnerTyping ? (
+                                    <span style={{ fontSize: '0.8rem', color: '#a855f7', lineHeight: '1', fontStyle: 'italic', animation: 'pulse 1.5s infinite' }}>Typing...</span>
+                                ) : (
+                                    (() => {
+                                        const user = suggestedUsers.find(u => u.uid === selectedChat.user.uid);
+                                        if (user?.isOnline) {
+                                            return <span style={{ fontSize: '0.8rem', color: '#25D366', lineHeight: '1' }}>Online</span>;
+                                        }
+                                        if (user?.lastSeen) {
+                                            return <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1' }}>{formatLastSeen(user.lastSeen)}</span>;
+                                        }
+                                        return null;
+                                    })()
+                                )}
+                            </div>
                         </div>
                         <div className="chat-actions">
                             {/* Could put video/call icons here */}
@@ -459,6 +645,14 @@ const Dashboard = () => {
                                     {m.img && <img src={m.img} alt="" style={{ width: '100%', borderRadius: '10px', marginBottom: '5px' }} />}
                                     <p>{m.text}</p>
                                     {/* <span>{m.timestamp}</span> */}
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
+                                        <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.7)' }}>{m.timestamp}</span>
+                                        {m.senderId === currentUser.uid && (
+                                            <span style={{ fontSize: '0.8rem', color: m.status === 'read' ? '#3b82f6' : 'rgba(255,255,255,0.7)' }}>
+                                                {m.status === 'read' ? '✓✓' : '✓'}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ))}
@@ -484,7 +678,7 @@ const Dashboard = () => {
                         <input
                             type="text"
                             placeholder={img ? "Image selected. Type a caption or send..." : "Type something..."}
-                            onChange={(e) => setNewMessage(e.target.value)}
+                            onChange={handleTyping}
                             value={newMessage}
                             onKeyDown={(e) => e.code === "Enter" && handleSendMessage()}
                             style={{ flex: 1 }}
@@ -496,6 +690,11 @@ const Dashboard = () => {
                         )}
                         <button onClick={handleSendMessage} className="btn-primary">Send</button>
                     </div>
+                </div>
+            ) : (
+                <div className="no-chat-selected glass-panel" style={{ flex: 2, borderLeft: '1px solid var(--glass-border)' }}>
+                    <h2>ChatVerse</h2>
+                    <p>Select a user to start chatting</p>
                 </div>
             )}
         </div>

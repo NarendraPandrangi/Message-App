@@ -7,12 +7,12 @@ import { getStorage } from "firebase/storage";
 // Configuration derived from the user provided google-services.json (Android)
 // Note: For full web support, you might need to register a Web App in the Firebase Console to get a specific appId for web.
 const firebaseConfig = {
-    apiKey: "AIzaSyCIKv5vkItir0Drc0Va4yS_rrjzODpfSU8",
-    authDomain: "chat-application-ad0d1.firebaseapp.com",
-    projectId: "chat-application-ad0d1",
-    storageBucket: "chat-application-ad0d1.firebasestorage.app",
-    messagingSenderId: "533844463584",
-    appId: "1:533844463584:android:083a819bf265e4ce742585"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Initialize Firebase

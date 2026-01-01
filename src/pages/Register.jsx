@@ -40,6 +40,7 @@ const Register = () => {
                 email,
                 displayName: email.split('@')[0],
                 photoURL: "https://ui-avatars.com/api/?name=" + email,
+                isOnline: true,
             });
 
             // Create empty user chats on firestore
